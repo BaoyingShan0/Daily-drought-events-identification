@@ -1,0 +1,182 @@
+
+%% Introduction
+% This script implements a proposed statistical method for identifying drought events on a daily scale. 
+% It includes data pre-processing, calculation of daily SPI, events identification, and visualization.
+
+% Please cite this paper if you use this method:  
+% Shan, B., Verhoest, N. E. C., and De Baets, B.: Identification of compound drought and heatwave events on a daily scale and across four seasons, EGUsphere [preprint], https://doi.org/10.5194/egusphere-2023-147, 2023.
+
+% Auther: Baoying Shan, Gent University, (baoying.shan@ugent.be)
+% Date: 2024.03.26
+
+
+% This script includes
+% part 1: Load functions and data
+% part 2: Calculate SPI
+% Part 3: Removal and merging processes
+% Part 4: Identify drought events
+% Part 5: Plotting
+
+%% Part 1: Load functions and data
+
+addpath(genpath('./02_src'));
+load('01_data/data0.mat'); 
+% which saved Pre(the daily precipitation), DMT(daily mean temperature), and Date (corresponding year, month, day) 
+
+% Data pre-processing:
+% Convert 366 days to 365 days
+mm = find(Date(:,2) == 2 & Date(:,3) == 29);
+Pre = pre; Pre(mm - 1, :) = pre(mm - 1, :) + pre(mm, :);
+DMT = dmt; DMT(mm - 1, :) = (dmt(mm - 1, :) + dmt(mm, :)) / 2;
+Date(mm, :) = []; Pre(mm, :) = []; DMT(mm, :) = [];
+t = datetime(Date);
+years = Date(end, 1) - Date(1, 1) + 1;
+
+%% Part 2: Calculate SPI 
+NSP = 30; % parameter for the possible non-stationarity
+scale_p = 30; % accumulation period for droughts
+% SPI
+SPI = SPI_best_dist(Date, Pre, scale_p, NSP);
+
+%% Part 3: Removal and merging processes
+% Parameter setting
+start_th_d=-1; end_th_d=-1; % pre-identification thresholds for droughts
+p=0.05;
+events_number_control=0.1; events_days_control=120;
+
+% Get removal and merging thresholds
+cc =  remo_merg("d",Date, SPI, ...
+    scale_p, p, start_th_d, end_th_d, events_number_control, events_days_control); % "d" represents droughts
+drought_removal_threshold=cc(1)  
+drought_merging_threshold=cc(2)
+
+%% Part 4: Identify drought and heatwave events
+drought_daily = PRM_extreme_identification("d", Date, SPI,start_th_d,end_th_d,...
+    drought_removal_threshold, drought_merging_threshold ); % the ninth column records if this day is in a drought (1 for yes, 0 for no)
+
+drought_events = daily_2_events(drought_daily, "d"); % all drought events
+
+%% Part 6: Plooting the identification process
+year_range=[2010, 2020];
+time_lim=[t( 365*( year_range(1) -Date(1,1) )+1), t( 365*( year_range(2) - Date(1,1) ) + 1) ] ;
+
+% perpare for the data
+A1=[];
+for is=1: scale_p,  A1=[A1, Pre(is:length(Pre)-scale_p+is)]; end
+XS_pre=sum(A1,2); % the sum of precipitation over past scale days
+XS_pre=[ nan(scale_p-1, 1); XS_pre ]/scale_p;
+vars=[Pre, XS_pre, SPI, SPI, SPI];
+
+% non stationarity, expected mean values, past 30 years
+cc = reshape(XS_pre, 365, []); pre_long_term_mean=nan(365, size(cc, 2));
+for j=1:size(cc, 2)
+    if j<=30
+        pre_long_term_mean(:, 1:30)=repmat( nanmean( cc(:,1:30),2),1,30 ) ;
+    else
+        pre_long_term_mean(:,j)= nanmean( cc(:,j-29:j),2) ;
+    end
+end
+pre_long_term_mean=reshape(pre_long_term_mean, [],1);
+
+
+% set colors front
+% font_text=8; font_title=9; font_labels=8;
+font_text=10; font_title=10; font_labels=10;
+face_alpha_1 = 0.6; face_alpha_2 = 0.6;
+font= 'Arial';%'Calibri';
+face_colors_1=["#d8b365","#d8b365", "#5ab4ac", "#d8b365", "#d8b365","#d8b365", "#d8b365", "#5ab4ac", "#fc8d59", "#fc8d59"];
+face_colors_2=["#d8b365", "#d8b365","#5ab4ac", "#5ab4ac", "#5ab4ac","#d8b365","#d8b365", "#4575b4", "#91bfdb", "#91bfdb"];
+Edge_colors_1 = ["#8c510a", "#8c510a", "#01665e", "#8c510a", "#8c510a","#8c510a", "#8c510a","#01665e", "#d73027", "#d73027"];
+Edge_colors_2 = ["#8c510a","#8c510a", "#01665e", "#5ab4ac", "#5ab4ac","#4575b4","#4575b4", "#4575b4", "#4575b4", "#4575b4"];
+
+color_pre='#0072BD';
+color_SPI='#A2142F';
+line_width = 0.9;
+
+
+for_ylabels=["Precipitation (mm)", "Precipitation (mm)", "SPI", "SPI", "SPI"];
+for_titles=["(a1) Daily precipitation",...
+    "(a2) Mean precipitation over a given ccumulation period and expected normal precipitation",...
+    "(a3) Daily SPI values",...
+    "(a4) Days in drought (brown) using fixed thresholds of -1 and 1, respectively", ...
+    "(a5) The final droughts(minor spells are removed and mutually dependent ones are merged)"];
+
+legend_for_pre=["Mean precipitation over 30 days", "Expected normal precipitation referring to the past 30 years"];
+
+% % setting for axes position
+ax_pos=[];
+for i=1:size(vars, 2)
+    ax(i)= subplot(size(vars, 2),1,i);
+    ax_pos(i,:)=get(ax(i),'position')+[-0.06,-0.05,0.155, 0.0] ;
+end
+ax_pos(1:5,1)=ax_pos(1:5,1)-0.03; 
+
+width =0.13; gap=0.055; start = 0.075; mm=1:size(vars, 2);
+width_s = start+(5-mm)*(width +gap ); ax_pos(:,2)= [width_s']; ax_pos(:,4)=width;
+
+% plot
+close all; figure(3)
+for i =1:size(vars, 2)
+    ax1 = axes("Position",ax_pos(i,:));
+    if i == 1
+        ba=bar(t, vars(:,i) );ba.BarWidth=1;
+        ba.EdgeColor=color_pre; ba.LineWidth=0.01;
+        ba.FaceColor=color_pre;
+%         text(0.02, 0.85,  for_text, "FontSize", font_text-1, 'Units','normalized','HorizontalAlignment',"left","FontWeight","normal");
+    elseif i == 2 
+        ba=bar(t, vars(:,i) );ba.BarWidth=1;
+        ba.EdgeColor=color_pre; ba.LineWidth=0.01;
+        ba.FaceColor=color_pre;
+        hold on;
+        if i==2
+            plot(t, pre_long_term_mean,'Color','#D95319', 'LineWidth', 0.9);
+            legend(legend_for_pre,'Location', 'northwest');
+        end
+
+    elseif i == 3
+        plot(t, vars(:,i),'LineWidth',line_width, 'Color',color_SPI); hold on;
+        plot(t, zeros( size(t,1) ,1), 'k', 'LineWidth',0.5);hold off;
+
+    elseif i == 4
+        ba1=bar(t(SPI<-1), vars(SPI<-1,i) ); hold on; 
+    elseif i == 5
+        ba1=bar(t(drought_daily(:,end-1) == 1), vars(drought_daily(:,end-1) == 1,i) ); hold on; 
+    end
+
+    if ismember(i, [4 5])
+        plot(t, vars(:,i),'LineWidth',line_width, 'Color',color_SPI);
+        plot(t, ones( size(t,1) ,1), 'r-.','LineWidth',0.2);
+        plot(t, -ones( size(t,1) ,1), 'r-.', 'LineWidth',0.2)
+        ba1.BarWidth=1;
+        % ba.FaceColor=face_colors(i);
+        ba1.EdgeColor=Edge_colors_1(i); ba1.LineWidth=0.01;
+        ba1.FaceColor=face_colors_1(i);
+        ba1.FaceAlpha=face_alpha_1;
+    end
+    
+    xlim( time_lim );  grid on; box on;
+    text(0,1.08, for_titles(i),"FontSize", font_title, 'Units','normalized','HorizontalAlignment',"left","FontWeight","normal");
+     set(gca, "FontSize",font_labels-2, "FontName", font,'TickDir','none');
+    if i==5, xlabel('Date'); end
+    if i==1, title("The procedure of identifying drought events on a daily scale"); end
+end
+set(gcf, 'Position', [0, 0, 1550, 800]);
+
+print(gcf,'The_procedure_of_identifying_drought_events_on_a_daily_scale.png','-dpng','-r800');     % set resolution, this perfect
+
+
+% taking year 1976 as an example
+year_range=[2010, 2020];
+time_lim=[t( 365*( year_range(1) -Date(1,1) )+1), t( 365*( year_range(2) - Date(1,1) ) + 365) ] ;
+
+figure(1);
+% plot SPI and drought identification results
+hold on;
+cc=drought_daily(:, 4); cc(drought_daily(:, end - 1)==0 )=nan;   ba= bar(t, cc , 'FaceColor', [1, 0.8, 0 ]  );  ba(1).BarWidth=1;
+plot(t, SPI, '.-',  'color', [0.85,0.33,0.10], 'LineWidth', 0.8 );
+plot(t, start_th_d*ones(length(t), 1 ), 'r--',  'LineWidth', 0.5);
+xlim( time_lim );hold off; ylabel(' SPI '); grid on; ti=title('Drought events'); set(ti , 'FontWeight', 'normal' )
+datetick('x','yyyy-mm' );  box on;
+
+set(gcf, 'Position', [100, 120, 1400, 400]);
+print(gcf,'Daily_SPI_values.png','-dpng','-r800');     % set resolution, this perfect
