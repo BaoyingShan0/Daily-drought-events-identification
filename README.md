@@ -1,7 +1,7 @@
 # Identify drought events on a daily scale (Daily SPI with removal and merging process)
 
 ## Introduction
-This repository is to identify drought events on a daily scale, based on the daily Standardized Precipitation Index (SPI). 
+This repository is to identify drought events on a daily scale, based on the daily SPI (Standardized Precipitation Index). 
 
 ## Requirements
 - MATLAB
